@@ -1,0 +1,980 @@
+# Планируемая архитектура
+# master01 (etcd)
+# master02 (etcd)
+# worker
+# worker
+
+#0) Установка софта и HAPROXY
+# set:
+#  alias kcd='kubectl config set-context $(kubectl config current-context) --namespace'
+#
+cat > /root/.bashrc <<EOF
+alias kcd='kubectl config set-context --current --namespace='
+EOF
+cat > /home/ubuntu/.bashrc <<EOF
+alias kcd='kubectl config set-context --current --namespace='
+EOF
+
+apt update -y
+apt install -y docker.io
+
+# when hostname not: master.cloud.com
+# /kubernetes/install_scripts/install_haproxy.sh
+
+#Конфига haproxy пробрасывает :443 на 6443 на каждый мастер, который берет из $SERVER переменной конфиги, берет последний докер образ haproxy:latest и генерирует конфигу вида:
+#
+#% cat /opt/haproxy.cfg
+#global
+#        log 127.0.0.1 local0
+#        log 127.0.0.1 local1 notice
+#        maxconn 4096
+#        maxpipes 1024
+#        daemon
+#defaults
+#        log global
+#        mode tcp
+#        option tcplog
+#        option dontlognull
+#        option redispatch
+#        option http-server-close
+#        retries 3
+#        timeout connect 5000
+#        timeout client 50000
+#        timeout server 50000
+#        frontend default_frontend
+#        bind *:443
+#        default_backend master-cluster
+#        stats enable
+#        stats auth user:admin
+#        stats uri /haproxyStats
+#backend master-cluster
+#        server master-1 10.0.0.2:6443 check
+#
+#Через команды
+#
+#+ docker stop master-proxy
+#+ docker rm master-proxy
+#
+#++ for worker in $SERVERS
+#++ oifs=,
+#++ IFS=:
+#++ read -r ip node
+#++ '[' -z '' ']'
+#++ cluster=10.0.0.2:6443
+#++ counter=1
+#++ IFS=,
+#++ echo '        server master-1 10.0.0.2:6443 check'
+#++ cluster=
+#++ unset IFS
+#+ docker run -d --name master-proxy -v /opt/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro --net=host haproxy
+#
+#
+#докер и haproxy на этом этапе нам нужен, тк походу /export/kubernetes/install_scripts_secure/install_master.sh при работе 
+#юзает kubectl без указания --port на 6433, по дефолту идет на 443 и по этой причине обламывается, тк там ничего нет
+#Такде, оно не ставит пакет докера, но при этом докера раскатывает. Поэтому первым шагом
+#
+#1) Инсталляция CA + Генерируем в /export/kubecertificate/certs ca.crt и ca.key, Инсталляция сертификатов
+
+SHORT_HOSTNAME=$( hostname -s )
+
+case "${SHORT_HOSTNAME}" in
+	master)
+		/export/kubernetes/certificates/install_ca.sh
+		/export/kubernetes/certificates/install_certificates.sh
+		;;
+	*)
+		max=0
+		while [ ${max} -lt 60 ]; do
+			if [ ! -r /export/kubecertificate/certs/ca.crt ]; then
+				echo "no /export/kubecertificate/certs/ca.crt, waiting ${max}/60..."
+				sleep 1
+			else
+				max=100
+			fi
+			max=$(( max + 1 ))
+		done
+		;;
+esac
+
+#Генерируем сертификаты для компонент /export/kubecertificate/certs/:
+#
+#rw-r--r-- 1 root root 1147 Jul 13 23:53 admin.crt
+#-rw-r--r-- 1 root root  887 Jul 13 23:53 admin.csr
+#-rw------- 1 root root 1679 Jul 13 23:53 admin.key
+#-rw-r--r-- 1 root root   18 Jul 13 23:53 basic_auth.csv
+#-rw-r--r-- 1 root root   41 Jul 13 23:53 ca.srl
+#-rw-r--r-- 1 root root  230 Jul 13 23:53 etcd-client-openssl.cnf
+#-rw-r--r-- 1 root root  296 Jul 13 23:53 etcd-openssl.cnf
+#-rw-r--r-- 1 root root 1172 Jul 13 23:53 kube-controller-manager.crt
+#-rw-r--r-- 1 root root  911 Jul 13 23:53 kube-controller-manager.csr
+#-rw------- 1 root root 1675 Jul 13 23:53 kube-controller-manager.key
+#-rw-r--r-- 1 root root 1151 Jul 13 23:53 kubelet.crt
+#-rw-r--r-- 1 root root  887 Jul 13 23:53 kubelet.csr
+#-rw------- 1 root root 1679 Jul 13 23:53 kubelet.key
+#-rw-r--r-- 1 root root 1155 Jul 13 23:53 kube-proxy.crt
+#-rw-r--r-- 1 root root  891 Jul 13 23:53 kube-proxy.csr
+#-rw------- 1 root root 1675 Jul 13 23:53 kube-proxy.key
+#-rw-r--r-- 1 root root 1159 Jul 13 23:53 kube-scheduler.crt
+#-rw-r--r-- 1 root root  899 Jul 13 23:53 kube-scheduler.csr
+#-rw------- 1 root root 1675 Jul 13 23:53 kube-scheduler.key
+#-rw-r--r-- 1 root root 1164 Jul 13 23:53 master.cloud.com.crt
+#-rw-r--r-- 1 root root  899 Jul 13 23:53 master.cloud.com.csr
+#-rw------- 1 root root 1675 Jul 13 23:53 master.cloud.com.key
+#-rw-r--r-- 1 root root 1245 Jul 13 23:53 node01.cloud.com.crt
+#-rw-r--r-- 1 root root  993 Jul 13 23:53 node01.cloud.com.csr
+#-rw-r--r-- 1 root root 2660 Jul 13 23:53 node01.cloud.com-etcd-client.crt
+#-rw-r--r-- 1 root root  972 Jul 13 23:53 node01.cloud.com-etcd-client.csr
+#-rw------- 1 root root 1675 Jul 13 23:53 node01.cloud.com-etcd-client.key
+#-rw-r--r-- 1 root root 2730 Jul 13 23:53 node01.cloud.com-etcd.crt
+#-rw-r--r-- 1 root root 1041 Jul 13 23:53 node01.cloud.com-etcd.csr
+#-rw------- 1 root root 1679 Jul 13 23:53 node01.cloud.com-etcd.key
+#-rw------- 1 root root 1675 Jul 13 23:53 node01.cloud.com.key
+#-rw-r--r-- 1 root root  280 Jul 13 23:53 node-openssl.cnf
+#-rw-r--r-- 1 root root 1765 Jul 13 23:53 server.crt
+#-rw-r--r-- 1 root root 1521 Jul 13 23:53 server.csr
+#-rw------- 1 root root 1675 Jul 13 23:53 server.key
+#-rw-r--r-- 1 root root  777 Jul 13 23:53 server-openssl.cnf
+
+#Каждая нода проходит стадию с CA и генерирует на 10000 дней сертификат и ключ:
+#/export/kubernetes/install_scripts_secure/../certificates/install_node.sh -i 10.0.0.2 -h node01.cloud.com
+#
+#+ openssl req -new -key node01.cloud.com.key -subj /CN=10.0.0.2 -out node01.cloud.com.csr -config node-openssl.cnf
+#+ openssl x509 -req -in node01.cloud.com.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out node01.cloud.com.crt -days 10000 -extensions v3_req -extfile node-openssl.cnf
+#+ openssl x509 -noout -text -in node01.cloud.com.crt
+#
+#
+#Сервера-пиры перечислены в ETCD_CLUSTERS_CERTS и проходят генерацию-инстолл сертификатов для пира
+#
+#for worker in $ETCD_CLUSTERS_CERTS
+#+ oifs=,
+#+ IFS=:
+#+ read -r ip node
+#+ echo 'The node node01.cloud.com'
+#The node node01.cloud.com
+#+ /export/kubernetes/install_scripts_secure/../certificates/install_peercert.sh -i 10.0.0.2 -h node01.cloud.com -t server -f etcd
+#
+#
+#HOSTNAME=node01.cloud.com-etcd
+#+ openssl req -new -key node01.cloud.com-etcd.key -subj /CN=10.0.0.2 -out node01.cloud.com-etcd.csr -config etcd-openssl.cnf
+#+ openssl x509 -req -in node01.cloud.com-etcd.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out node01.cloud.com-etcd.crt -days 10000 -extensions v3_req -extfile etcd-openssl.cnf
+#+ openssl x509 -noout -text -in node01.cloud.com-etcd.crt
+#
+#+ /export/kubernetes/install_scripts_secure/../certificates/install_peercert.sh -i 10.0.0.2 -h node01.cloud.com -t client -f etcd
+#
+#+ HOSTNAME=node01.cloud.com-etcd-client
+#
+#+ openssl req -new -key node01.cloud.com-etcd-client.key -subj /CN=10.0.0.2 -out node01.cloud.com-etcd-client.csr -config etcd-client-openssl.cnf
+#+ openssl x509 -req -in node01.cloud.com-etcd-client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out node01.cloud.com-etcd-client.crt -days 10000 -extensions v3_req -extfile etcd-client-openssl.cnf
+#
+#+ openssl x509 -noout -text -in node01.cloud.com-etcd-client.crt
+#
+#
+#3) Инсталляция k8s мастера
+
+/export/kubernetes/install_scripts_secure/install_master.sh
+
+#Инсталляция k8s мастера
+#
+#В темповом /export/tmp/workspace : 
+#качаем https://storage.googleapis.com/kubernetes-release/release/v1.10.0/kubernetes-server-linux-amd64.tar.gz
+#качаем https://github.com/coreos/etcd/releases/download/v3.2.18/etcd-v3.2.18-linux-amd64.tar.gz
+#качаем https://github.com/coreos/flannel/releases/download/v0.10.0/flannel-v0.10.0-linux-amd64.tar.gz
+#
+#Распаковываем в /opt
+#+ tar -xf kubernetes-server-linux-amd64.tar.gz -C /opt/
+#
+#копируем бинари в PATH
+#+ cp /opt/kubernetes/server/bin/hyperkube /opt/kubernetes/server/bin/kubeadm /opt/kubernetes/server/bin/kube-apiserver /opt/kubernetes/server/bin/kubelet /opt/kubernetes/server/bin/kube-proxy /opt/kubernetes/server/bin/kubectl /usr/local/bin
+#
+#Создаем рабочие каталоги
+#+ mkdir -p /var/lib/kube-controller-manager /var/lib/kubelet /var/lib/kube-proxy /var/lib/kube-scheduler
+#+ mkdir -p /etc/kubernetes /etc/sysconfig
+#+ mkdir -p /etc/kubernetes/manifests
+#
+#
+#Запускается install_kubeconfig.sh:
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_kubeconfig.sh
+#++ dd if=/dev/urandom bs=128 count=1
+#++ dd bs=32 count=1
+#++ tr -d =+/
+#++ base64
+#+ TOKEN=hkuPL9yZ2mV5z5Q256wEBlXXJsbiBhco
+#
+#Имея конфиг, создаем конфигурация кластера, используя сертификаты и имя сервера по конфиге:
+#
+#
+#+ kubectl config set-cluster cloud.com --certificate-authority=/export/kubecertificate/certs//ca.crt --embed-certs=true --server=https://master.cloud.com
+#Cluster "cloud.com" set.
+#
+#Какие-то креды admin и создание усера admin + персональный сертификат к нему:
+#
+#+ kubectl config set-credentials admin --client-certificate=/export/kubecertificate/certs//admin.crt --client-key=/export/kubecertificate/certs//admin.key --embed-certs=true --token=hkuPL9yZ2mV5z5Q256wEBlXXJsbiBhco
+#User "admin" set.
+#
+#Какой-то contect cloud.com:
+#
+#+ kubectl config set-context cloud.com --cluster=cloud.com --user=admin
+#Context "cloud.com" created.
+#+ kubectl config use-context cloud.com
+#Switched to context "cloud.com".
+#
+#
+#Используя другой токен, создается kubelet 
+#Кубелет, это:
+#The kubelet is the primary "node agent" that runs on each node. It can register the node with the apiserver using one of: the hostname; a flag to override the hostname; or specific logic for a cloud provider.
+#The kubelet works in terms of a PodSpec. A PodSpec is a YAML or JSON object that describes a pod. The kubelet takes a set of PodSpecs that are provided through various mechanisms (primarily through the apiserver) and ensures that the containers described in those PodSpecs are running and healthy. The kubelet doesn't manage containers which were not created by Kubernetes.
+#Other than from a PodSpec from the apiserver, there are three ways that a container manifest can be provided to the Kubelet.
+#
+#
+#+ echo ''
+#+ for user in kubelet kube-proxy kube-controller-manager kube-scheduler master.cloud.com
+#++ dd if=/dev/urandom bs=128 count=1
+#++ dd bs=32 count=1
+#++ tr -d =+/
+#++ base64
+#+ TOKEN=n5PWU64eEtXXUuu7vFNKGUpCYNm9kyOu
+#+ kubectl config set-cluster cloud.com --certificate-authority=/export/kubecertificate/certs//ca.crt --embed-certs=true --server=https://master.cloud.com --kubeconfig=/var/lib/kubelet/kubeconfig
+#Cluster "cloud.com" set.
+#+ kubectl config set-credentials kubelet --client-certificate=/export/kubecertificate/certs//kubelet.crt --client-key=/export/kubecertificate/certs//kubelet.key --embed-certs=true --token=n5PWU64eEtXXUuu7vFNKGUpCYNm9kyOu --kubeconfig=/var/lib/kubelet/kubeconfig
+#User "kubelet" set.
+#+ kubectl config set-context cloud.com --cluster=cloud.com --user=kubelet --kubeconfig=/var/lib/kubelet/kubeconfig
+#Context "cloud.com" created.
+#
+#+ echo n5PWU64eEtXXUuu7vFNKGUpCYNm9kyOu,kubelet,kubelet
+#3
+#
+#+ kubectl config use-context cloud.com --kubeconfig=/var/lib/kubelet/kubeconfig
+#Switched to context "cloud.com".
+#+ for user in kubelet kube-proxy kube-controller-manager kube-scheduler master.cloud.com
+#++ dd if=/dev/urandom bs=128 count=1
+#++ dd bs=32 count=1
+#++ base64
+#++ tr -d =+/
+#+ TOKEN=nc75cGJGnvQzb9pi6JWNcFHJ8w2JZNwM
+#
+#
+#Создается kube-proxy
+#
+#+ kubectl config set-cluster cloud.com --certificate-authority=/export/kubecertificate/certs//ca.crt --embed-certs=true --server=https://master.cloud.com --kubeconfig=/var/lib/kube-proxy/kubeconfig
+#Cluster "cloud.com" set.
+#+ kubectl config set-credentials kube-proxy --client-certificate=/export/kubecertificate/certs//kube-proxy.crt --client-key=/export/kubecertificate/certs//kube-proxy.key --embed-certs=true --token=nc75cGJGnvQzb9pi6JWNcFHJ8w2JZNwM --kubeconfig=/var/lib/kube-proxy/kubeconfig
+#User "kube-proxy" set.
+#+ kubectl config set-context cloud.com --cluster=cloud.com --user=kube-proxy --kubeconfig=/var/lib/kube-proxy/kubeconfig
+#Context "cloud.com" created.
+#+ echo nc75cGJGnvQzb9pi6JWNcFHJ8w2JZNwM,kube-proxy,kube-proxy
+#
+#
+#+ kubectl config use-context cloud.com --kubeconfig=/var/lib/kube-proxy/kubeconfig
+#Switched to context "cloud.com".
+#+ for user in kubelet kube-proxy kube-controller-manager kube-scheduler master.cloud.com
+#++ dd if=/dev/urandom bs=128 count=1
+#++ dd bs=32 count=1
+#++ base64
+#++ tr -d =+/
+#+ TOKEN=CAEqljkqMhvYtgTgNcSHoXLnGU5XTjON
+#+ kubectl config set-cluster cloud.com --certificate-authority=/export/kubecertificate/certs//ca.crt --embed-certs=true --server=https://master.cloud.com --kubeconfig=/var/lib/kube-controller-manager/kubeconfig
+#Cluster "cloud.com" set.
+#+ kubectl config set-credentials kube-controller-manager --client-certificate=/export/kubecertificate/certs//kube-controller-manager.crt --client-key=/export/kubecertificate/certs//kube-controller-manager.key --embed-certs=true --token=CAEqljkqMhvYtgTgNcSHoXLnGU5XTjON --kubeconfig=/var/lib/kube-controller-manager/kubeconfig
+#User "kube-controller-manager" set.
+#+ kubectl config set-context cloud.com --cluster=cloud.com --user=kube-controller-manager --kubeconfig=/var/lib/kube-controller-manager/kubeconfig
+#Context "cloud.com" created.
+#+ echo CAEqljkqMhvYtgTgNcSHoXLnGU5XTjON,kube-controller-manager,kube-controller-manager
+#+ kubectl config use-context cloud.com --kubeconfig=/var/lib/kube-controller-manager/kubeconfig
+#Switched to context "cloud.com".
+#+ for user in kubelet kube-proxy kube-controller-manager kube-scheduler master.cloud.com
+#++ dd if=/dev/urandom bs=128 count=1
+#++ dd bs=32 count=1
+#++ base64
+#++ tr -d =+/
+#
+#
+#
+#Создается kube-scheduler:
+#
+#
+#+ TOKEN=0YLGmMDOlwVpNdOjB34hmRLC8Ik1KJ10
+#+ kubectl config set-cluster cloud.com --certificate-authority=/export/kubecertificate/certs//ca.crt --embed-certs=true --server=https://master.cloud.com --kubeconfig=/var/lib/kube-scheduler/kubeconfig
+#Cluster "cloud.com" set.
+#+ kubectl config set-credentials kube-scheduler --client-certificate=/export/kubecertificate/certs//kube-scheduler.crt --client-key=/export/kubecertificate/certs//kube-scheduler.key --embed-certs=true --token=0YLGmMDOlwVpNdOjB34hmRLC8Ik1KJ10 --kubeconfig=/var/lib/kube-scheduler/kubeconfig
+#User "kube-scheduler" set.
+#+ kubectl config set-context cloud.com --cluster=cloud.com --user=kube-scheduler --kubeconfig=/var/lib/kube-scheduler/kubeconfig
+#Context "cloud.com" created.
+#+ echo 0YLGmMDOlwVpNdOjB34hmRLC8Ik1KJ10,kube-scheduler,kube-scheduler
+#+ kubectl config use-context cloud.com --kubeconfig=/var/lib/kube-scheduler/kubeconfig
+#Switched to context "cloud.com".
+#+ for user in kubelet kube-proxy kube-controller-manager kube-scheduler master.cloud.com
+#++ dd if=/dev/urandom bs=128 count=1
+#++ dd bs=32 count=1
+#++ base64
+#++ tr -d =+/
+#
+#
+#Создается master.cloud.com
+#
+#+ TOKEN=RRbzuXmtlqf3fcNvP9j9QkaYBQi0kTkd
+#+ kubectl config set-cluster cloud.com --certificate-authority=/export/kubecertificate/certs//ca.crt --embed-certs=true --server=https://master.cloud.com --kubeconfig=/var/lib/master.cloud.com/kubeconfig
+#Cluster "cloud.com" set.
+#+ kubectl config set-credentials master.cloud.com --client-certificate=/export/kubecertificate/certs//master.cloud.com.crt --client-key=/export/kubecertificate/certs//master.cloud.com.key --embed-certs=true --token=RRbzuXmtlqf3fcNvP9j9QkaYBQi0kTkd --kubeconfig=/var/lib/master.cloud.com/kubeconfig
+#User "master.cloud.com" set.
+#+ kubectl config set-context cloud.com --cluster=cloud.com --user=master.cloud.com --kubeconfig=/var/lib/master.cloud.com/kubeconfig
+#Context "cloud.com" created.
+#+ echo RRbzuXmtlqf3fcNvP9j9QkaYBQi0kTkd,master.cloud.com,master.cloud.com
+#+ kubectl config use-context cloud.com --kubeconfig=/var/lib/master.cloud.com/kubeconfig
+#Switched to context "cloud.com".
+#+ '[' 0 -ne 0 ']'
+#
+#
+#
+#
+#Генерируем и инсталлируем ETCD
+#
+#
+#
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_etcd.sh
+#+ tar -xzvf etcd-v3.2.18-linux-amd64.tar.gz
+#
+#создается иерархия etcd в /opt
+#
+#+ mkdir -p /opt/etcd/bin
+#+ mkdir -p /opt/etcd/config/
+#+ cp etcd etcdctl /opt/etcd/bin/
+#+ mkdir -p /var/lib/etcd/
+#+ proto=http
+#+ sudo tee /opt/etcd/config/etcd.conf
+#ETCD_DATA_DIR=/var/lib/etcd
+#ETCD_NAME=node01
+#ETCD_LISTEN_PEER_URLS=https://10.0.0.2:2380
+#ETCD_LISTEN_CLIENT_URLS=https://10.0.0.2:2379,https://10.0.0.2:4001,http://127.0.0.1:2379,http://127.0.0.1:4001
+#ETCD_INITIAL_CLUSTER=node01=https://10.0.0.2:2380
+#ETCD_INITIAL_ADVERTISE_PEER_URLS=https://10.0.0.2:2380
+#ETCD_ADVERTISE_CLIENT_URLS=https://10.0.0.2:2379,https://10.0.0.2:4001
+#ETCD_PEER_CERT_FILE=/export/kubecertificate/certs//node01.cloud.com-etcd.crt
+#ETCD_PEER_KEY_FILE=/export/kubecertificate/certs//node01.cloud.com-etcd.key
+#ETCD_PEER_TRUSTED_CA_FILE=/export/kubecertificate/certs//ca.crt
+#ETCD_PEER_CLIENT_CERT_AUTH=true
+#ETCD_CERT_FILE=/export/kubecertificate/certs//node01.cloud.com-etcd.crt
+#ETCD_KEY_FILE=/export/kubecertificate/certs//node01.cloud.com-etcd.key
+#ETCD_TRUSTED_CA_FILE=/export/kubecertificate/certs//ca.crt
+#ETCD_CLIENT_CERT_AUTH=true
+#ETCD_INITIAL_CLUSTER_STATE=new
+#ETCD_HEARTBEAT_INTERVAL=6000
+#ETCD_ELECTION_TIMEOUT=30000
+#GOMAXPROCS=2
+#
+#
+#Создаем sysmted-unit
+#
+#+ sudo tee /etc/systemd/system/etcd.service
+#
+#создаем симлинки в PATH
+#
+#+ ln -s /opt/etcd/bin/etcd /usr/local/bin/etcd
+#+ ln -s /opt/etcd/bin/etcdctl /usr/local/bin/etcdctl
+#
+#
+#Какая-то конфигурация сети VXLAN 
+#
+#+ /opt/etcd/bin/etcdctl --cert-file /export/kubecertificate/certs//node01.cloud.com-etcd-client.crt --key-file /export/kubecertificate/certs//node01.cloud.com-etcd-client.key --ca-file /export/kubecertificate/certs//ca.crt set /coreos.com/network/config '{"Network":"172.17.0.0/16","Backend": {"Type": "vxlan"}}'
+#{"Network":"172.17.0.0/16","Backend": {"Type": "vxlan"}}
+#
+#
+#+ /opt/etcd/bin/etcdctl --cert-file /export/kubecertificate/certs//node01.cloud.com-etcd-client.crt --key-file /export/kubecertificate/certs//node01.cloud.com-etcd-client.key --ca-file /export/kubecertificate/certs//ca.crt cluster-health
+#member fde9dd315b6d0b2 is healthy: got healthy result from https://10.0.0.2:2379
+#cluster is healthy
+#
+#
+#Инсталляция KUBE API Server
+#
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_kube_api_server.sh
+#
+#Создаем kube-apiserver systemd юнит, в нем зашиты etcd сервера
+#
+#+ sudo tee /etc/systemd/system/kube-apiserver.service
+#
+#++ echo '--etcd-cafile=/export/kubecertificate/certs//ca.crt --etcd-certfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.crt --etcd-keyfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.key '
+#++ echo '--anonymous-auth=false --authorization-mode=RBAC,AlwaysAllow --authorization-rbac-super-user=admin --basic-auth-file=/export/kubecertificate/certs/basic_auth.csv --admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount,PersistentVolumeLabel,DefaultStorageClass,DefaultTolerationSeconds,ResourceQuota --token-auth-file=/export/kubecertificate/certs/known_tokens.csv --service-account-key-file=/export/kubecertificate/certs/server.key'
+#++ echo '--oidc-issuer-url=https://skmaji.auth0.com/ --oidc-client-id=C3UHISO3z60iF1JLG8L7VPUSWOASrJfO --oidc-username-claim=email --oidc-groups-claim=groups '
+#[Unit]
+#Description=Kubernetes API Server
+#Documentation=https://github.com/kubernetes/kubernetes
+#After=etcd.service
+#Wants=etcd.service
+#[Service]
+#User=root
+#EnvironmentFile=-/var/lib/flanneld/subnet.env
+#ExecStart=/opt/kubernetes/server/bin/kube-apiserver --bind-address=0.0.0.0 --insecure-port=8080 --secure-port=6443 --logtostderr=true --etcd-cafile=/export/kubecertificate/certs//ca.crt --etcd-certfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.crt --etcd-keyfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.key  --etcd-servers=https://10.0.0.2:4001 --anonymous-auth=false --authorization-mode=RBAC,AlwaysAllow --authorization-rbac-super-user=admin --basic-auth-file=/export/kubecertificate/certs/basic_auth.csv --admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount,PersistentVolumeLabel,DefaultStorageClass,DefaultTolerationSeconds,ResourceQuota --token-auth-file=/export/kubecertificate/certs/known_tokens.csv --service-account-key-file=/export/kubecertificate/certs/server.key --oidc-issuer-url=https://skmaji.auth0.com/ --oidc-client-id=C3UHISO3z60iF1JLG8L7VPUSWOASrJfO --oidc-username-claim=email --oidc-groups-claim=groups  --allow-privileged=true --service-cluster-ip-range=172.18.0.0/24 --service-node-port-range=30000-32767 --advertise-address=10.0.0.1 --client-ca-file=/export/kubecertificate/certs/ca.crt --tls-cert-file=/export/kubecertificate/certs/server.crt --tls-private-key-file=/export/kubecertificate/certs/server.key --v=6 --enable-swagger-ui=true
+#
+#
+#
+#Инсталлируем kube-controller-manager
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_kube_controller_manager.sh
+#
+#Генерируем kube-controller-manager.service systemd unit, в нем есть cluster-cidr
+#
+#++ echo '--v=2 --allocate-node-cidrs=true --attach-detach-reconcile-sync-period=1m0s --cluster-cidr=172.17.0.0/16 --cluster-name=cloud.com --leader-elect=true --use-service-account-credentials=true --cluster-signing-cert-file=/export/kubecertificate/certs//ca.crt --cluster-signing-key-file=/export/kubecertificate/certs//ca.key --service-cluster-ip-range=172.18.0.0/24 --configure-cloud-routes=false '
+#[Unit]
+#Description=Kubernetes Controller Manager
+#Documentation=https://github.com/kubernetes/kubernetes
+#[Service]
+#User=root
+#ExecStart=/opt/kubernetes/server/bin/kube-controller-manager --v=2 --allocate-node-cidrs=true --attach-detach-reconcile-sync-period=1m0s --cluster-cidr=172.17.0.0/16 --cluster-name=cloud.com --leader-elect=true --use-service-account-credentials=true --cluster-signing-cert-file=/export/kubecertificate/certs//ca.crt --cluster-signing-key-file=/export/kubecertificate/certs//ca.key --service-cluster-ip-range=172.18.0.0/24 --configure-cloud-routes=false  --logtostderr=true --master=127.0.0.1:8080 --root-ca-file=/export/kubecertificate/certs//ca.crt --service-account-private-key-file=/export/kubecertificate/certs//server.key --kubeconfig=/var/lib/kube-controller-manager/kubeconfig --horizontal-pod-autoscaler-use-rest-clients=false
+#
+#
+#Инсталлируем kube_scheduler:
+#
+#
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_kube_scheduler.sh
+#
+#Генерируем systemd юнит на локалхост :8080
+#ExecStart=/opt/kubernetes/server/bin/kube-scheduler --logtostderr=true --master=127.0.0.1:8080 --leader-elect=true --v=2 --kubeconfig=/var/lib/kube-scheduler/kubeconfig
+#
+#
+#Далее kubelet, cidr также в конфиге
+#
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_nodes.sh
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_kubelet.sh
+#+ sudo tee /etc/systemd/system/kubelet.service
+#++ '[' true == true ']'
+#++ echo '--v=2 --non-masquerade-cidr=172.17.0.0/15 --allow-privileged=true --enable-custom-metrics=true --cgroup-root=/ --enable-debugging-handlers=true --eviction-hard=memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%,imagefs.available<10%,imagefs.inodesFree<5% --tls-cert-file=/export/kubecertificate/certs//server.crt --tls-private-key-file=/export/kubecertificate/certs//server.key --client-ca-file=/export/kubecertificate/certs//ca.crt --node-labels=kubernetes.io/role=master,node-role.kubernetes.io/master= '
+#
+#
+#
+#Инсталлируем kube_proxy, он имеет master запись вида master.cloud.com
+#
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_kube_proxy.sh
+#
+#ExecStart=/opt/kubernetes/server/bin/kube-proxy --hostname-override=node01 --master=https://master.cloud.com --cluster-cidr=172.17.0.0/16 --kubeconfig=/var/lib/kube-proxy/kubeconfig --logtostderr=true
+#
+#
+#Инсталлируем flannel.
+#На этом этапе у нас запущены и работают следующие сервисы:
+#kube-apiserver.service
+#kube-controller-manager.service
+#kube-scheduler.service
+#kubelet.service
+#kube-proxy.service
+#
+#
+#Фланнел это SDN: Flannel is created by CoreOS for Kubernetes networking, it also can be used as a general software defined network solution for other purpose.
+#
+#
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_flannel.sh
+#+ mkdir -p /opt/flannel
+#+ tar xzf flannel-v0.10.0-linux-amd64.tar.gz -C /opt/flannel
+#+ mkdir -p /etc/flanneld
+#
+#
+#В flanner смотрим всех ETCD_CLUSTERS в качестве etcd endpoints
+#
+#Пишем опции в options.env:
+#+ sudo tee /etc/flanneld/options.env
+#FLANNELD_ETCD_ENDPOINTS=https://10.0.0.2:4001
+#FLANNELD_ETCD_CAFILE=/export/kubecertificate/certs//ca.crt
+#FLANNELD_ETCD_CERTFILE=/export/kubecertificate/certs//node01.cloud.com-etcd-client.crt
+#FLANNELD_ETCD_KEYFILE=/export/kubecertificate/certs//node01.cloud.com-etcd-client.key
+#FLANNELD_IFACE=eth0
+#
+#Пишем systemd юнит
+#
+#+ sudo tee /etc/systemd/system/flanneld.service
+#+ cat
+#++ '[' true == true ']'
+#+++ hostname -s
+#+++ hostname -s
+#++ echo '--etcd-cafile=/export/kubecertificate/certs//ca.crt --etcd-certfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.crt --etcd-keyfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.key '
+#ExecStart=/opt/flannel/flanneld --etcd-cafile=/export/kubecertificate/certs//ca.crt --etcd-certfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.crt --etcd-keyfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.key  --etcd-endpoints=https://10.0.0.2:4001 --iface=eth0 --ip-masq
+#
+#
+#Какие-то доке опции на старте
+#
+### Updating Docker options
+##ExecStartPost=/opt/flannel/mk-docker-opts.sh -d /run/flanneld/docker_opts.env -i
+##ExecStartPost=/bin/bash /opt/flannel/update_docker.sh
+##
+#
+#
+#+ sudo tee /opt/flannel/update_docker.sh
+#source /run/flannel/subnet.env
+##source /run/flanneld/docker_opts.env
+##sed -i "s|ExecStart=.*|ExecStart=\/usr\/bin\/dockerd -H tcp:\/\/127.0.0.1:4243 -H unix:\/\/\/var\/run\/docker.sock ${DOCKER_OPT_BIP} ${DOCKER_OPT_MTU} ${DOCKER_OPT_IPMASQ}|g" /lib/systemd/system/docker.service
+#sed -i "s|ExecStart=.*|ExecStart=\/usr\/bin\/dockerd -H tcp:\/\/127.0.0.1:4243 -H unix:\/\/\/var\/run\/docker.sock --bip=${FLANNEL_SUBNET} --mtu=${FLANNEL_MTU}|g" /lib/systemd/system/docker.service
+#rc=0
+#ip link show docker0 >/dev/null 2>&1 || rc="0"
+#if [[ "" -eq "0" ]]; then
+#ip link set dev docker0 down
+#ip link delete docker0
+#fi
+#
+#
+#flannel при запуске херачит правила iptables
+#           ├─5457 /opt/flannel/flanneld --etcd-cafile=/export/kubecertificate/certs//ca.crt --etcd-certfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.crt --etcd-keyfile=/export/kubecertificate/certs//node01.cloud.com-etcd-client.key --etcd-endpoints=https://10.0.0.2:4001 --iface=eth0 --ip-masq
+#           └─5501 /sbin/iptables -t filter -D FORWARD -d 172.17.0.0/16 -j ACCEPT --wait
+#
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.174020    5457 iptables.go:137] Deleting iptables rule: -s 172.17.0.0/16 -j ACCEPT
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.175231    5457 iptables.go:137] Deleting iptables rule: -s 172.17.0.0/16 ! -d 224.0.0.0/4 -j MASQUERADE
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.177684    5457 iptables.go:137] Deleting iptables rule: -d 172.17.0.0/16 -j ACCEPT
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.197606    5457 iptables.go:137] Deleting iptables rule: ! -s 172.17.0.0/16 -d 172.17.36.0/24 -j RETURN
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.198965    5457 iptables.go:137] Deleting iptables rule: ! -s 172.17.0.0/16 -d 172.17.0.0/16 -j MASQUERADE
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.200940    5457 iptables.go:125] Adding iptables rule: -s 172.17.0.0/16 -d 172.17.0.0/16 -j RETURN
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.203178    5457 iptables.go:125] Adding iptables rule: -s 172.17.0.0/16 ! -d 224.0.0.0/4 -j MASQUERADE
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.205394    5457 iptables.go:125] Adding iptables rule: ! -s 172.17.0.0/16 -d 172.17.36.0/24 -j RETURN
+#Jul 14 00:13:22 node01.cloud.com flanneld[5457]: I0714 00:13:22.207564    5457 iptables.go:125] Adding iptables rule: ! -s 172.17.0.0/16 -d 172.17.0.0/16 -j MASQUERADE
+#Jul 14 00:13:22 node01.cloud.com systemd[1]: Started Flanneld.
+#
+#
+#
+#На этом этапе запускается и работает сервис:
+#flanneld.service
+#
+#
+#
+#kubectl , admin, дашбоард и чее-то не пашет.
+#ln -s /opt/kubernetes/server/bin/kubectl /usr/bin/kubectl
+#+ kubectl create -f /export/kubernetes/install_scripts_secure/admin.yaml
+#The connection to the server master.cloud.com was refused - did you specify the right host or port?
+#+ [[ true == \t\r\u\e ]]
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_dashboard.sh
+#+ pushd /export/tmp
+#/export/tmp ~
+#+ cp /export/kubernetes/install_scripts_secure/../kube_service/dashboard/v1.6.3.yaml .
+#++ echo https://master.cloud.com
+#++ sed 's/\//\\\//g'
+#+ APISERVER_HOST='https:\/\/master.cloud.com'
+#++ echo /export/kubecertificate/certs/
+#++ sed 's/\//\\\//g'
+#+ CERTIFICATE_MOUNT_PATH='\/export\/kubecertificate\/certs\/'
+#+ '[' true == true ']'
+#++ echo /var/lib/kubelet/kubeconfig
+#++ sed 's/\//\\\//g'
+#+ KUBECONFIG='\/var\/lib\/kubelet\/kubeconfig'
+#+ sed -i 's/$KUBECONFIG/\/var\/lib\/kubelet\/kubeconfig/' /export/tmp/v1.6.3.yaml
+#+ sed -i 's/$APISERVER_HOST/https:\/\/master.cloud.com/' /export/tmp/v1.6.3.yaml
+#+ sed -i 's/$CERTIFICATE_MOUNT_PATH/\/export\/kubecertificate\/certs\//' /export/tmp/v1.6.3.yaml
+#+ kubectl create -f /export/tmp/v1.6.3.yaml
+#The connection to the server master.cloud.com was refused - did you specify the right host or port?
+#+ popd
+#~
+#+ [[ true == \t\r\u\e ]]
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_skydns.sh
+#+ pushd /export/tmp
+#/export/tmp ~
+#+ cp /export/kubernetes/install_scripts_secure/../kube_service/skydns/v1.14.1.yaml .
+#++ echo https://master.cloud.com
+#++ sed 's/\//\\\//g'
+#+ APISERVER_HOST='https:\/\/master.cloud.com'
+#++ echo /export/kubecertificate/certs/
+#++ sed 's/\//\\\//g'
+#+ CERTIFICATE_MOUNT_PATH='\/export\/kubecertificate\/certs\/'
+#+ '[' true == true ']'
+#++ echo /var/lib/kubelet/kubeconfig
+#++ sed 's/\//\\\//g'
+#+ KUBECONFIG='\/var\/lib\/kubelet\/kubeconfig'
+#+ sed -i 's/$KUBECONFIG/\/var\/lib\/kubelet\/kubeconfig/' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$APISERVER_HOST/https:\/\/master.cloud.com/' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$CERTIFICATE_MOUNT_PATH/\/export\/kubecertificate\/certs\//' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$SKYDNS_DOMAIN_NAME/cloud.uat/' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$DNS_IP/172.18.0.2/' /export/tmp/v1.14.1.yaml
+#+ kubectl create -f /export/tmp/v1.14.1.yaml
+#The connection to the server master.cloud.com was refused - did you specify the right host or port?
+#++ grep -E 'ExecStart.*--cluster-dns.*--cluster-domain' /etc/systemd/system/kubelet.service
+#+ check=
+#+ '[' -z '' ']'
+#+ sed -i '/ExecStart/s/$/ --cluster-dns=172.18.0.2 --cluster-domain=cloud.uat/' /etc/systemd/system/kubelet.service
+#+ systemctl daemon-reload
+#+ systemctl restart kubelet
+#+ service docker restart
+#+ popd
+#~
+#++ hostname -f
+#+ '[' node01.cloud.com == master.cloud.com ']'
+#+ [[ true == \t\r\u\e ]]
+#+ /bin/bash /export/kubernetes/install_scripts_secure/install_ingress.sh
+#+ pushd /export/tmp
+#/export/tmp ~
+#+ mkdir -p ingress
+#+ pushd ingress
+#/export/tmp/ingress /export/tmp ~
+#+ cp -r /export/kubernetes/install_scripts_secure/../kube_service/ingress/default-backend-deployment.yaml /export/kubernetes/install_scripts_secure/../kube_service/ingress/default-backend-service.yaml /export/kubernetes/install_scripts_secure/../kube_service/ingress/dhparam.pem /export/kubernetes/install_scripts_secure/../kube_service/ingress/example /export/kubernetes/install_scripts_secure/../kube_service/ingress/nginx-ingress-controller-config-map.yaml /export/kubernetes/install_scripts_secure/../kube_service/ingress/nginx-ingress-controller-deployment.yaml /export/kubernetes/install_scripts_secure/../kube_service/ingress/nginx-ingress-controller-roles.yaml /export/kubernetes/install_scripts_secure/../kube_service/ingress/nginx-ingress-controller-service.yaml /export/kubernetes/install_scripts_secure/../kube_service/ingress/nginx-ingress.yaml /export/kubernetes/install_scripts_secure/../kube_service/ingress/ssl-dh-param.yaml .
+#++ sed 's/\//\\\//g'
+#++ echo https://master.cloud.com
+#+ APISERVER_HOST='https:\/\/master.cloud.com'
+#++ echo /export/kubecertificate/certs/
+#++ sed 's/\//\\\//g'
+#+ CERTIFICATE_MOUNT_PATH='\/export\/kubecertificate\/certs\/'
+#+ /kubernetes/install_scripts/install_haproxy.sh
+#+ : /kubernetes/install_scripts
+#+ source /kubernetes/install_scripts/../config
+#++ ENABLE_DEBUG=true
+#++ MOUNT_PATH=/export
+#++ INSTALL_PATH=/export/kubernetes/install_scripts_secure
+#++ REPOSITORY=http://192.168.1.5
+#++ HOSTINTERFACE=eth0
+#+++ hostname -I
+#+++ awk '{printf $1}'
+#++ HOSTIP=10.0.0.2
+#++ WORKDIR=/export/tmp
+#++ SERVER_DNS=master.cloud.com,node01.cloud.com,kubernetes.default.svc,kubernetes.default,kubernetes,kubernetes.default.svc.cloud,kubernetes.default.svc.cloud.uat,localhost,master,node01
+#++ SERVER_IP=10.0.0.1,10.0.0.2,172.18.0.1,127.0.0.1,192.168.1.7,192.168.1.1,192.168.1.2,192.168.1.3,192.168.1.4,192.168.1.5,192.168.1.6,192.168.1.8,192.168.1.9,192.168.1.10,192.168.1.11
+#++ SERVERS=10.0.0.2:node01.cloud.com
+#++ WORKERS=10.0.0.2:node01.cloud.com
+#++ NODES=10.0.0.2:node01.cloud.com
+#++ CLUSTER=cloud.com
+#++ CERTIFICATE=/export/kubecertificate
+#++ CERTIFICATE_MOUNT_PATH=/export/kubecertificate/certs/
+#++ CA_CERTIFICATE=/export/kubecertificate/certs//ca.crt
+#++ API_SERVER=https://master.cloud.com
+#++ CLIENT_CERTIFICATE=/export/kubecertificate/certs//admin.crt
+#++ CLIENT_KEY=/export/kubecertificate/certs//admin.key
+#++ ETCD_CLUSTERS=10.0.0.2:node01
+#++ HAPROXY=10.0.0.1
+#++ FLANNEL_NET=172.17.0.0/16
+#++ CLUSTERIPRANGE=172.18.0.0/24
+#++ CLUSTER_NON_MASQUEARADE_CIDR=172.17.0.0/15
+#++ API_SERVERS=https://master.cloud.com
+#++ APISERVER_HOST=https://master.cloud.com
+#++ ETCD_CLUSTERS_CERTS=10.0.0.2:node01.cloud.com
+#++ DOMAIN=cloud.com
+#++ ENABLE_ETCD_SSL=true
+#++ ENABLE_KUBE_SSL=true
+#++ ENABLE_OIDC=true
+#++ INGRESS_HOST=master.cloud.com
+#++ INSTALL_INGRESS=true
+#++ ETCDSERVERS=http://10.0.0.2:2379
+#++ MASTER_1_IP=10.0.0.2
+#++ ADVERTISE_IP=10.0.0.2
+#++ ETCD_1_IP=10.0.0.2
+#++ ETCD_1_NAME=node01
+#++ DNS_IP=172.18.0.2
+#++ YOUR_DOMAIN=cloud.uat
+#++ INSTALL_KUBELET_ON_MASTER=true
+#++ INSTALL_DASHBOARD=true
+#++ INSTALL_SKYDNS=true
+#++ INSTALL_HEAPSTER=false
+#++ SKYDNS_DOMAIN_NAME=cloud.uat
+#++ ETCD_VERSION=etcd-v3.2.18-linux-amd64
+#++ FLANNEL_VERSION=flannel-v0.10.0-linux-amd64
+#++ COUNTRY=RU
+#++ STATE='Nort-West Russia'
+#++ LOCALITY=GN
+#++ ORGANIZATION=ConvectIX
+#++ ORGU=IT
+#++ EMAIL=noc@convectix.com
+#++ COMMONNAME=k8s-dep
+#+ docker stop master-proxy
+#master-proxy
+#+ docker rm master-proxy
+#master-proxy
+#+ cat
+#++ IFS=,
+#++ counter=0
+#++ cluster=
+#++ for worker in $SERVERS
+#++ oifs=,
+#++ IFS=:
+#++ read -r ip node
+#++ '[' -z '' ']'
+#++ cluster=10.0.0.2:6443
+#++ counter=1
+#++ IFS=,
+#++ echo '        server master-1 10.0.0.2:6443 check'
+#++ cluster=
+#++ unset IFS
+#+ docker run -d --name master-proxy -v /opt/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro --net=host haproxy
+#ddab91d153065a7627d99b515be62f58d0e715e19fdc8e295d0661e5a0ed3af2
+#+ '[' true == true ']'
+#++ echo /var/lib/master.cloud.com/kubeconfig
+#++ sed 's/\//\\\//g'
+#+ KUBECONFIG='\/var\/lib\/master.cloud.com\/kubeconfig'
+#+ sed -i 's/$KUBECONFIG/\/var\/lib\/master.cloud.com\/kubeconfig/' nginx-ingress-controller-deployment.yaml
+#+ sed -i 's/$APISERVER_HOST/https:\/\/master.cloud.com/' nginx-ingress-controller-deployment.yaml
+#+ sed -i 's/$CERTIFICATE_MOUNT_PATH/\/export\/kubecertificate\/certs\//' nginx-ingress-controller-deployment.yaml
+#+ sed -i 's/$INGRESS_HOST/master.cloud.com/' nginx-ingress.yaml
+#+ sed -i 's/$INGRESS_HOST/master.cloud.com/' nginx-ingress-controller-deployment.yaml
+#+ sed -i 's/$INGRESS_HOST/master.cloud.com/' example/app-ingress.yaml
+#+ kubectl create namespace ingress
+#namespace "ingress" created
+#+ kubectl create -f default-backend-deployment.yaml -f default-backend-service.yaml -n=ingress
+#deployment.extensions "default-backend" created
+#service "default-backend" created
+#+ kubectl create secret tls ingress-certificate --key /export/kubecertificate/certs/master.cloud.com.key --cert /export/kubecertificate/certs/master.cloud.com.crt -n ingress
+#secret "ingress-certificate" created
+#+ kubectl create secret tls ingress-certificate --key /export/kubecertificate/certs/master.cloud.com.key --cert /export/kubecertificate/certs/master.cloud.com.crt -n default
+#secret "ingress-certificate" created
+#+ kubectl create -f ssl-dh-param.yaml
+#configmap "lb-dhparam" created
+#+ kubectl create -f nginx-ingress-controller-config-map.yaml -n=ingress
+#configmap "nginx-ingress-controller-conf" created
+#+ kubectl create -f nginx-ingress-controller-roles.yaml -n=ingress
+#serviceaccount "nginx" created
+#clusterrolebinding.rbac.authorization.k8s.io "nginx-role" created
+#Error from server (Forbidden): error when creating "nginx-ingress-controller-roles.yaml": clusterroles.rbac.authorization.k8s.io "nginx-role" is forbidden: attempt to grant extra privileges: [PolicyRule{APIGroups:[""], Resources:["configmaps"], Verbs:["list"]} PolicyRule{APIGroups:[""], Resources:["configmaps"], Verbs:["watch"]} PolicyRule{APIGroups:[""], Resources:["secrets"], Verbs:["list"]} PolicyRule{APIGroups:[""], Resources:["secrets"], Verbs:["watch"]} PolicyRule{APIGroups:[""], Resources:["endpoints"], Verbs:["list"]} PolicyRule{APIGroups:[""], Resources:["endpoints"], Verbs:["watch"]} PolicyRule{APIGroups:[""], Resources:["ingresses"], Verbs:["list"]} PolicyRule{APIGroups:[""], Resources:["ingresses"], Verbs:["watch"]} PolicyRule{APIGroups:[""], Resources:["nodes"], Verbs:["list"]} PolicyRule{APIGroups:[""], Resources:["nodes"], Verbs:["watch"]} PolicyRule{APIGroups:[""], Resources:["pods"], Verbs:["list"]} PolicyRule{APIGroups:[""], Resources:["pods"], Verbs:["watch"]} PolicyRule{APIGroups:["extensions"], Resources:["configmaps"], Verbs:["list"]} PolicyRule{APIGroups:["extensions"], Resources:["configmaps"], Verbs:["watch"]} PolicyRule{APIGroups:["extensions"], Resources:["secrets"], Verbs:["list"]} PolicyRule{APIGroups:["extensions"], Resources:["secrets"], Verbs:["watch"]} PolicyRule{APIGroups:["extensions"], Resources:["endpoints"], Verbs:["list"]} PolicyRule{APIGroups:["extensions"], Resources:["endpoints"], Verbs:["watch"]} PolicyRule{APIGroups:["extensions"], Resources:["ingresses"], Verbs:["list"]} PolicyRule{APIGroups:["extensions"], Resources:["ingresses"], Verbs:["watch"]} PolicyRule{APIGroups:["extensions"], Resources:["nodes"], Verbs:["list"]} PolicyRule{APIGroups:["extensions"], Resources:["nodes"], Verbs:["watch"]} PolicyRule{APIGroups:["extensions"], Resources:["pods"], Verbs:["list"]} PolicyRule{APIGroups:["extensions"], Resources:["pods"], Verbs:["watch"]} PolicyRule{APIGroups:[""], Resources:["services"], Verbs:["list"]} PolicyRule{APIGroups:[""], Resources:["services"], Verbs:["watch"]} PolicyRule{APIGroups:[""], Resources:["services"], Verbs:["get"]} PolicyRule{APIGroups:[""], Resources:["services"], Verbs:["update"]} PolicyRule{APIGroups:["extensions"], Resources:["ingresses"], Verbs:["get"]} PolicyRule{APIGroups:[""], Resources:["events"], Verbs:["create"]} PolicyRule{APIGroups:["extensions"], Resources:["ingresses/status"], Verbs:["update"]} PolicyRule{APIGroups:[""], Resources:["configmaps"], Verbs:["get"]}] user=&{admin  [system:authenticated] map[]} ownerrules=[PolicyRule{APIGroups:["authorization.k8s.io"], Resources:["selfsubjectaccessreviews" "selfsubjectrulesreviews"], Verbs:["create"]} PolicyRule{NonResourceURLs:["/api" "/api/*" "/apis" "/apis/*" "/healthz" "/openapi" "/openapi/*" "/swagger-2.0.0.pb-v1" "/swagger.json" "/swaggerapi" "/swaggerapi/*" "/version" "/version/"], Verbs:["get"]}] ruleResolutionErrors=[]
+#+ kubectl create -f nginx-ingress-controller-deployment.yaml -n=ingress
+#deployment.extensions "nginx-ingress-controller" created
+#+ kubectl create -f nginx-ingress.yaml -n=ingress
+#ingress.extensions "nginx-ingress" created
+#+ kubectl create -f nginx-ingress-controller-service.yaml -n=ingress
+#service "nginx-ingress" created
+#+ kubectl create -f example/
+#deployment.extensions "app1" created
+#deployment.extensions "app2" created
+#ingress.extensions "app-ingress" created
+#service "appsvc1" created
+#service "appsvc2" created
+#Error from server (AlreadyExists): error when creating "example/ldap-ing.yaml": ingresses.extensions "app-ingress" already exists
+#+ popd
+#/export/tmp ~
+#+ popd
+#
+#
+#
+#
+#Хотя если выполнить фейловые команды после - все проходит (паузу после flannel выждать ?)
+#a) cluster-admins
+#kubectl create -f /export/kubernetes/install_scripts_secure/admin.yaml
+#clusterrolebinding.rbac.authorization.k8s.io "cluster-admins" created
+#
+#b) dashboard
+#
+#/export/kubernetes/install_scripts_secure/install_dashboard.sh
+#+ pushd /export/tmp
+#/export/tmp ~
+#+ cp /export/kubernetes/install_scripts_secure/../kube_service/dashboard/v1.6.3.yaml .
+#++ sed 's/\//\\\//g'
+#++ echo https://master.cloud.com
+#+ APISERVER_HOST='https:\/\/master.cloud.com'
+#++ sed 's/\//\\\//g'
+#++ echo /export/kubecertificate/certs/
+#+ CERTIFICATE_MOUNT_PATH='\/export\/kubecertificate\/certs\/'
+#+ '[' true == true ']'
+#++ sed 's/\//\\\//g'
+#++ echo /var/lib/kubelet/kubeconfig
+#+ KUBECONFIG='\/var\/lib\/kubelet\/kubeconfig'
+#+ sed -i 's/$KUBECONFIG/\/var\/lib\/kubelet\/kubeconfig/' /export/tmp/v1.6.3.yaml
+#+ sed -i 's/$APISERVER_HOST/https:\/\/master.cloud.com/' /export/tmp/v1.6.3.yaml
+#+ sed -i 's/$CERTIFICATE_MOUNT_PATH/\/export\/kubecertificate\/certs\//' /export/tmp/v1.6.3.yaml
+#+ kubectl create -f /export/tmp/v1.6.3.yaml
+#serviceaccount "kubernetes-dashboard" created
+#clusterrolebinding.rbac.authorization.k8s.io "kubernetes-dashboard" created
+#deployment.extensions "kubernetes-dashboard" created
+#service "kubernetes-dashboard" created
+#
+#( запущен k8s_kubernetes-dashboard_kubernetes-dashboard-85698bcdcf-fzdvc_kube-system_5779c808-c55f-11ea-93a0-00a098b39125_1 )
+# - port: 80
+#    targetPort: 9090
+#selector:
+#    k8s-app: kubernetes-dashboard
+#
+#
+#
+#c) SkyDNS
+#
+#/export/kubernetes/install_scripts_secure/install_skydns.sh
+#
+#+ cp /export/kubernetes/install_scripts_secure/../kube_service/skydns/v1.14.1.yaml .
+#++ echo https://master.cloud.com
+#++ sed 's/\//\\\//g'
+#+ APISERVER_HOST='https:\/\/master.cloud.com'
+#++ echo /export/kubecertificate/certs/
+#++ sed 's/\//\\\//g'
+#+ CERTIFICATE_MOUNT_PATH='\/export\/kubecertificate\/certs\/'
+#+ '[' true == true ']'
+#++ echo /var/lib/kubelet/kubeconfig
+#++ sed 's/\//\\\//g'
+#+ KUBECONFIG='\/var\/lib\/kubelet\/kubeconfig'
+#+ sed -i 's/$KUBECONFIG/\/var\/lib\/kubelet\/kubeconfig/' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$APISERVER_HOST/https:\/\/master.cloud.com/' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$CERTIFICATE_MOUNT_PATH/\/export\/kubecertificate\/certs\//' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$SKYDNS_DOMAIN_NAME/cloud.uat/' /export/tmp/v1.14.1.yaml
+#+ sed -i 's/$DNS_IP/172.18.0.2/' /export/tmp/v1.14.1.yaml
+#+ kubectl create -f /export/tmp/v1.14.1.yaml
+#serviceaccount "kube-dns" created
+#configmap "kube-dns" created
+#service "kube-dns" created
+#deployment.extensions "kube-dns" created
+#++ grep -E 'ExecStart.*--cluster-dns.*--cluster-domain' /etc/systemd/system/kubelet.service
+#+ check='ExecStart=/opt/kubernetes/server/bin/kubelet --v=2 --non-masquerade-cidr=172.17.0.0/15 --allow-privileged=true --enable-custom-metrics=true --cgroup-root=/ --enable-debugging-handlers=true --eviction-hard=memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%,imagefs.available<10%,imagefs.inodesFree<5% --tls-cert-file=/export/kubecertificate/certs//server.crt --tls-private-key-file=/export/kubecertificate/certs//server.key --client-ca-file=/export/kubecertificate/certs//ca.crt --node-labels=kubernetes.io/role=master,node-role.kubernetes.io/master=  --hostname-override=node01 --logtostderr=true --fail-swap-on=false --kubeconfig=/var/lib/kubelet/kubeconfig --pod-manifest-path=/etc/kubernetes/manifests --register-schedulable=true --container-runtime=docker --docker=unix:///var/run/docker.sock --cluster-dns=172.18.0.2 --cluster-domain=cloud.uat'
+#+ '[' -z 'ExecStart=/opt/kubernetes/server/bin/kubelet --v=2 --non-masquerade-cidr=172.17.0.0/15 --allow-privileged=true --enable-custom-metrics=true --cgroup-root=/ --enable-debugging-handlers=true --eviction-hard=memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%,imagefs.available<10%,imagefs.inodesFree<5% --tls-cert-file=/export/kubecertificate/certs//server.crt --tls-private-key-file=/export/kubecertificate/certs//server.key --client-ca-file=/export/kubecertificate/certs//ca.crt --node-labels=kubernetes.io/role=master,node-role.kubernetes.io/master=  --hostname-override=node01 --logtostderr=true --fail-swap-on=false --kubeconfig=/var/lib/kubelet/kubeconfig --pod-manifest-path=/etc/kubernetes/manifests --register-schedulable=true --container-runtime=docker --docker=unix:///var/run/docker.sock --cluster-dns=172.18.0.2 --cluster-domain=cloud.uat' ']'
+#+ systemctl daemon-reload
+#+ systemctl restart kubelet
+#+ service docker restart
+#
+#
+#d) Ingress
+#
+#/export/kubernetes/install_scripts_secure/install_ingress.sh
+#
+#
+#
+#
+#
+#
+#Теперб можно сделать
+#
+#kubectl get pods -v6 
+#I0714 02:28:50.204556   17902 loader.go:357] Config loaded from file /root/.kube/config
+#I0714 02:28:50.219501   17902 round_trippers.go:405] GET https://master.cloud.com/api/v1/namespaces/default/pods?limit=500 200 OK in 8 milliseconds
+#I0714 02:28:50.227153   17902 round_trippers.go:405] GET https://master.cloud.com/openapi/v2 200 OK in 6 milliseconds
+#NAME                    READY     STATUS    RESTARTS   AGE
+#app1-7cbd664fbf-2c7l4   1/1       Running   1          13m
+#app1-7cbd664fbf-6fz78   1/1       Running   1          13m
+#app2-76998cd8d-88g8l    1/1       Running   1          13m
+#app2-76998cd8d-b5wzw    1/1       Running   1          13m
+#
+#
+#
+#
+#
+#
+#
+#
+#4) Чтобы использовать Ingress, пишем правила
+
+iptables -t nat -A PREROUTING -p tcp --dport 30000 -j DNAT --to-destination 10.0.0.2:30000 # http
+iptables -t nat -A PREROUTING -p tcp --dport 32000 -j DNAT --to-destination 10.0.0.2:32000 # nginx ui
+iptables -t nat -A PREROUTING -p tcp --dport 31000 -j DNAT --to-destination 10.0.0.2:31000 # https
+
+#
+#
+#5) Нужно добавить CA в броузер
+#Add ca.crt and server.crt file in chrome browser, please refer link on how to add certificate. 
+#Add server.crt in Other People tab and ca.crt in Trusted Root Certificate Authority tab.
+#
+#6) Прописать hosts
+#10.0.0.2 master.cloud.com
+#
+#
+#7) Доступ в nginx UI
+#http://master.cloud.com:32000/nginx_status
+#- почему-то нет, хотя в ингрес входит: kube_service/ingress/nginx-ingress-controller-service.yaml
+#
+#По https://master.cloud.com/  и admin/admin будет список ендпоинтов
+#
+#
+#8) Доступ в Dashboard
+#
+#https://master.cloud.com/api/v1/namespaces/kube-system/services/http:kubernetes-dashboard:/proxy/    (admin/admin)
+#
+#Хотя пишет message	"no endpoints available for service \"http:kubernetes-dashboard:\""
+#
+#
+#9) LDAP не работает, но это его порт:
+#https://master.cloud.com:31000/phpldapadmin/ + sumit/sumit
+#
+#
+#
+#
+#ошибки
+#kubectl get nodes
+#kubectl get pods
+#kubectl describe pods app1-7cbd664fbf-2c7l4
+#
+#kubectl delete pod XXXX
+#
+#
+#Чтобы поменять namespace:
+#alias kcd='kubectl config set-context $(kubectl config current-context) --namespace'
+#kcd name_space
+#
+#Например системный namespace
+#
+#kcd kube-system
+#kubectl get pods
+#NAME                                    READY     STATUS             RESTARTS   AGE
+#kube-dns-859fc5d455-bg8vn               1/3       CrashLoopBackOff   14         25m
+#kubernetes-dashboard-85698bcdcf-fzdvc   0/1       CrashLoopBackOff   12         28m
+#
+#kubectl describe po kubernetes-dashboard
+#
+#kubectl delete pod kubernetes-dashboard-85698bcdcf-fzdvc
+#pod "kubernetes-dashboard-85698bcdcf-fzdvc" deleted
+#
+#Оба pod (dash/dns) показывают стейт:
+#CrashLoopBackOff
+#
+#если делать docker logs <докер dashboard>
+#
+#No request provided. Skipping authorization header
+#Error while initializing connection to Kubernetes apiserver. This most likely means that the cluster is misconfigured (e.g., it has invalid apiserver certificates or service accounts configuration) or the --apiserver-host param points to a server that does not exist. Reason: Get https://master.cloud.com/version: dial tcp: i/o timeout
+#Refer to the troubleshooting guide for more information: https://github.com/kubernetes/dashboard/blob/master/docs/user-guide/troubleshooting.md
+#      "Path": "/dashboard",
+#        "Args": [
+#            "--insecure-bind-address=0.0.0.0",
+#            "--apiserver-host=https://master.cloud.com",
+#            "--kubeconfig=/var/lib/kubelet/kubeconfig"
+#        ],
+#
+#
+#/dashboard --insecure-bind-address=0.0.0.0 --apiserver-host=https://master.cloud.com --kubeconfig=/var/lib/kubelet/kubeconfig
+#
+#Нету сети
+#Error while initializing connection to Kubernetes apiserver. This most likely means that the cluster is misconfigured (e.g., it has invalid apiserver certificates or service accounts configuration) or the --apiserver-host param points to a server that does not exist. Reason: Get https://master.cloud.com/version: dial tcp: i/o timeout\n","stream":"stdout","time":"2020-07-14T00:17:38.313430088Z"
+
+
+# docker run -v /var/lib/kubelet:/var/lib/kubelet -it --entrypoint=/dashboard 691a82db1ecd --insecure-bind-address=0.0.0.0 --apiserver-host=https://10.0.0.2 --kubeconfig=/var/lib/kubelet/kubeconfig 
+# 
+# https://master.cloud.com/api/v1/namespaces/kube-system/services/
+
+
+
+# Можно скейлить:
+# kubectl get rs --namespace=kube-system
+# kubectl scale --replicas=2 deployment kubernetes-dashboard --namespace=kube-system
+
+
+
+# ###To join a worker node
+#```shell script
+# kubeadm join master_ip:master_port --token token_id --discovery-token-ca-cert-hash hash_cert
+# token взять тут /export/kubecertificate/certs/known_tokens.csv:
+#    grep master.cloud.com /export/kubecertificate/certs/known_tokens.csv
+#masterPrivateIp=$(az network nic list -g $rg --query "[?tags.module == 'k8smasters'].ipConfigurations[0].privateIpAddress" -o tsv)
+#tokenId=$(ssh $masterIp "kubeadm token list | grep -v TOKEN | cut -d' ' -f1")
+#tokenSHA=$(ssh $masterIp "openssl x509 -in /etc/kubernetes/pki/ca.crt -noout -pubkey | openssl rsa -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1")
+##  openssl x509 -in /export/kubecertificate/certs/ca.crt -noout -pubkey | openssl rsa -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1
+# /opt/kubernetes/server/bin/kubeadm 
+# /opt/kubernetes/server/bin/kubeadm join master.cloud.com:6443 --token NfZoiqoKqtBiAbsD3h87o42ZqU0ngFsH --discovery-token-ca-cert-hash sha256:44a68d4a2c2a86e05cc0d4ee8c9c6b64352c54e450021331c483561e45b34388
+# при кривой версии: ERROR SystemVerification]: unsupported docker version: 19.03.6
+# --ignore-preflight-errors=SystemVerification:
+# /opt/kubernetes/server/bin/kubeadm join master.cloud.com:6443 --token NfZoiqoKqtBiAbsD3h87o42ZqU0ngFsH --discovery-token-ca-cert-hash sha256:5aa7b646b43642b30a1f8f1c9eed45a1b4985c8a34a79dcff526acd88fcce859 --ignore-preflight-errors=SystemVerification
+# new way:
+# kubeadm token create --print-join-command --kubeconfig=/var/lib/kubelet/kubeconfig
+
+# intall ca
+# sudo mkdir /usr/local/share/ca-certificates/extra
+#cp /export/kubecertificate/certs/ca.crt /usr/local/share/ca-certificates/extra/root.cert.crt
+#root@node05:~#  update-ca-certificates
+#Updating certificates in /etc/ssl/certs...
+#1 added, 0 removed; done.
+#Running hooks in /etc/ca-certificates/update.d...
+#done.
+
+
+# new new 
+#  kubeadm token create --kubeconfig=/var/lib/kubelet/kubeconfig
+# kubeadm token list --kubeconfig=/var/lib/kubelet/kubeconfig
+# kubeadm token create --print-join-command 
+#   will show: kubeadm join master.cloud.com --token edbli4.9f07ythr5wc3izu9 --discovery-token-ca-cert-hash sha256:5aa7b646b43642b30a1f8f1c9eed45a1b4985c8a34a79dcff526acd88fcce859
+# openssl x509 -pubkey -in /export/kubecertificate/certs/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'
+#   will show: 5aa7b646b43642b30a1f8f1c9eed45a1b4985c8a34a79dcff526acd88fcce859
+# kubectl cluster-info
+#   will show:
+#     Kubernetes master is running at https://master.cloud.com
+#     KubeDNS is running at https://master.cloud.com/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+#     kubernetes-dashboard is running at https://master.cloud.com/api/v1/namespaces/kube-system/services/kubernetes-dashboard/proxy
+#
+# sudo kubeadm join master.cloud.com:6443 --token gj09ah.seds56c48pdrwa4c --discovery-token-ca-cert-hash sha256:5aa7b646b43642b30a1f8f1c9eed45a1b4985c8a34a79dcff526acd88fcce859 --ignore-preflight-errors=SystemVerification
+# kubectl get pods --all-namespaces
+# kubectl logs kubernetes-dashboard-dfc7c5ff9-6sq7k --namespace=kube-system
+# Error from server (BadRequest): container "kubernetes-dashboard" in pod "kubernetes-dashboard-dfc7c5ff9-6sq7k" is waiting to start: trying and failing to pull image
+
+# kubectl get ev
+# replicaset !!!
+# APP
+# https://master.cloud.com/api/v1/namespaces/default/services/appsvc1:/proxy/
