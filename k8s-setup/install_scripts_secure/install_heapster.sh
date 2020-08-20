@@ -18,4 +18,3 @@ kubectl create -f $WORKDIR/influxdb/
 
 popd
 popd
-

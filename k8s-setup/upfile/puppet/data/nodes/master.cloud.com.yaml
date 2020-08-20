@@ -1,0 +1,65 @@
+role: k8s-master
+
+lsyncd::rsyncssh:
+  sync-10.0.0.3:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.3
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"
+  sync-10.0.0.4:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.4
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"
+  sync-10.0.0.5:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.5
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"
+  sync-10.0.0.6:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.6
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"
+
+# both nodes should use BACKUP state
+# but different weights and nopreemt:
+# first node:
+#   priority: 101
+# second node:
+#   priority: 100
+#   nopreemt: true
+keepalived::vrrp_instance:
+  VI_50:
+    nopreempt: false
+    advert_int: 2
+    interface: 'eth0'
+    state: 'MASTER'
+    virtual_router_id: 51
+    unicast_source_ip: 10.0.0.2
+    unicast_peers: [ '10.0.0.3', '10.0.0.4' ]
+    priority: 101
+    auth_type: 'AH'
+    auth_pass: 'secret'
+    virtual_ipaddress: '10.0.0.100/32'
+    use_vmac: vrrp150

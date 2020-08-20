@@ -17,7 +17,7 @@ bhyve_master0()
 	ci_fqdn="${fqdn}"
 	ci_ip4_addr="${ip4_addr}"
 	ci_gw4="${ip4_gw}"
-	ci_interface_mtu="1350"
+	#ci_interface_mtu="1350"
 	imgtype="zvol"
 	runasap=1
 	ssh_wait=1

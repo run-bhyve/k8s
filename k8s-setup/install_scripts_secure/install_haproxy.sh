@@ -56,5 +56,3 @@ EOF
 docker run --restart=always -d --name master-proxy \
 -v /opt/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro \
 --net=host haproxy
-
-

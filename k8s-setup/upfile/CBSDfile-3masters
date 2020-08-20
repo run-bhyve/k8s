@@ -1,5 +1,9 @@
 quiet=1
 
+rm -f kubernetes.tgz puppet.tgz
+tar cfz kubernetes.tgz kubernetes
+tar cfzv puppet.tgz puppet
+
 bhyve_master0()
 {
 	vm_ram="8g"
@@ -17,7 +21,7 @@ bhyve_master0()
 	ci_fqdn="${fqdn}"
 	ci_ip4_addr="${ip4_addr}"
 	ci_gw4="${ip4_gw}"
-	ci_interface_mtu="1350"
+	#ci_interface_mtu="1350"
 	imgtype="zvol"
 	#imgtype="md"
 	runasap=1
@@ -33,6 +37,7 @@ postcreate_master0()
 	bscp ./prepare_master.sh ${jname}:prepare_master.sh
 	bscp ./prepare_pup.sh ${jname}:prepare_pup.sh
 	bscp ./kubernetes.tgz ${jname}:kubernetes.tgz
+	bscp ./puppet.tgz ${jname}:puppet.tgz
 	grep -v '^#' kube-up-scenario.txt |grep . > kube-up.sh
 	bscp ./kube-up.sh ${jname}:kube-up.sh
 	bexec jname=${jname} sudo /home/ubuntu/prepare_master.sh
@@ -71,6 +76,7 @@ postcreate_master2()
 	bscp ./prepare_master.sh ${jname}:prepare_master.sh
 	bscp ./prepare_pup.sh ${jname}:prepare_pup.sh
 	bscp ./kubernetes.tgz ${jname}:kubernetes.tgz
+	bscp ./puppet.tgz ${jname}:puppet.tgz
 	grep -v '^#' kube-up-scenario.txt |grep . > kube-up.sh
 	bscp ./kube-up.sh ${jname}:kube-up.sh
 	bexec jname=${jname} sudo /home/ubuntu/prepare_master.sh
@@ -109,6 +115,7 @@ postcreate_master3()
 	bscp ./prepare_master.sh ${jname}:prepare_master.sh
 	bscp ./prepare_pup.sh ${jname}:prepare_pup.sh
 	bscp ./kubernetes.tgz ${jname}:kubernetes.tgz
+	bscp ./puppet.tgz ${jname}:puppet.tgz
 	grep -v '^#' kube-up-scenario.txt |grep . > kube-up.sh
 	bscp ./kube-up.sh ${jname}:kube-up.sh
 	bexec jname=${jname} sudo /home/ubuntu/prepare_master.sh

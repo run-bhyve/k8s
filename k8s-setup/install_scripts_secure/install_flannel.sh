@@ -125,7 +125,7 @@ systemctl daemon-reload && systemctl enable flanneld && systemctl start flanneld
 
 systemctl restart docker
 $INSTALL_PATH/install_haproxy.sh
-systemctl status flanneld
+#systemctl status flanneld
 
 popd
 popd

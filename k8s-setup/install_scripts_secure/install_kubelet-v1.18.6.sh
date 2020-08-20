@@ -34,6 +34,7 @@ then
 ` \
 --hostname-override=$(hostname -s) \
 --logtostderr=true --fail-swap-on=false \
+--node-status-update-frequency=10s \
 --kubeconfig=/var/lib/kubelet/kubeconfig --pod-manifest-path=/etc/kubernetes/manifests --register-schedulable=true --container-runtime=docker --docker=unix:///var/run/docker.sock
 Restart=on-failure
 KillMode=process
@@ -53,7 +54,7 @@ EOF
 systemctl daemon-reload
 systemctl enable kubelet
 systemctl restart kubelet
-systemctl status kubelet
+#systemctl status kubelet
 
 popd
 popd

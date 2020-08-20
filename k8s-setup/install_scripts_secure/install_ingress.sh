@@ -49,7 +49,5 @@ kubectl create -f nginx-ingress-controller-service.yaml -n=ingress
 #Example app
 kubectl create -f example/
 
-
-
 popd
 popd

@@ -1,0 +1,6 @@
+timezone::timezone: Europe/Moscow
+
+crontab::purge: true
+
+sudo::purge: true
+sudo::config_file_replace: true

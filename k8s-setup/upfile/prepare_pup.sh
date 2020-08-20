@@ -18,6 +18,14 @@ if [ "${1}" = "gold" ]; then
 	[ ! -d /etc/puppetlabs/code/environments/production ] && mkdir -p /etc/puppetlabs/code/environments/production
 	ln -sf /etc/puppetlabs/puppet/modules /etc/puppetlabs/code/environments/production/modules
 else
+	tar xfz puppet.tgz
+	rm -f puppet.tgz
+	rm -rf /etc/puppetlabs/puppet
+	mv puppet /etc/puppetlabs
+	rm -rf /etc/puppetlabs/code/environments/production/modules || true
+	[ ! -d /etc/puppetlabs/code/environments/production ] && mkdir -p /etc/puppetlabs/code/environments/production
+	ln -sf /etc/puppetlabs/puppet/modules /etc/puppetlabs/code/environments/production/modules
+
 	cd /opt/puppetlabs/puppet
 	puppet apply /etc/puppetlabs/puppet/site.pp
 	puppet apply /etc/puppetlabs/puppet/site.pp

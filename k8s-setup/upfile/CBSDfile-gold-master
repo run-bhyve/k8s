@@ -8,20 +8,20 @@ bhyve_master0()
 {
 	vm_ram="8g"
 	vm_cpus="2"
-	imgsize="6g"
+	imgsize="5g"
 	vm_os_type="linux"
-	vm_os_profile="cloud-ubuntuserver-amd64-18.04"
+	vm_os_profile="cloud-ubuntuserver-amd64-20.04"
 
 	ip4_addr="10.0.0.2"
 	ip4_gw="10.0.0.1"
 	fqdn="master.cloud.com"
 
-	interface="cbsdvale_kube1"
+	interface="cbsdvale_vale1"
 	ci_jname="${jname}"
 	ci_fqdn="${fqdn}"
 	ci_ip4_addr="${ip4_addr}"
 	ci_gw4="${ip4_gw}"
-	ci_interface_mtu="1350"
+	#ci_interface_mtu="1350"
 	#imgtype="zvol"
 	imgtype="md"
 	runasap=1
@@ -35,10 +35,12 @@ postcreate_master0()
 	bscp ./kubernetes.tgz ${jname}:kubernetes.tgz
 	bscp ./puppet.tgz ${jname}:puppet.tgz
 	bexec jname=${jname} sudo /home/ubuntu/prepare_master.sh gold
-	bexec jname=${jname} sudo /home/ubuntu/prepare_pup.sh gold
-	bexec jname=${jname} sudo /kubernetes/install_scripts_secure/install_binaries.sh
-	bexec jname=${jname} sudo apt update -y
-	bexec jname=${jname} sudo apt install -y docker.io lsyncd keepalived rsync
-	bexec jname=${jname} sudo /kubernetes/install_scripts_secure/install_haproxy.sh
-	bexec jname=${jname} sudo rm -rf /var/lib/cloud
+	echo "SLEEP"
+#	sleep 160
+#	bexec jname=${jname} sudo /home/ubuntu/prepare_pup.sh gold
+#	bexec jname=${jname} sudo /kubernetes/install_scripts_secure/install_binaries.sh
+#	bexec jname=${jname} sudo /kubernetes/install_scripts_secure/install_haproxy.sh
+#	bexec jname=${jname} sudo docker pull k8s.gcr.io/kubernetes-dashboard-amd64:v1.8.3
+#	bexec jname=${jname} sudo apt clean -y
+#	bexec jname=${jname} sudo rm -rf /var/lib/cloud
 }

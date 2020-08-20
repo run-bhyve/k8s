@@ -1,0 +1,43 @@
+role: k8s-master
+
+lsyncd::rsyncssh:
+  sync-10.0.0.2:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.2
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"
+  sync-10.0.0.3:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.3
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"
+  sync-10.0.0.4:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.4
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"
+  sync-10.0.0.5:
+    source: /export
+    targetdir: /export
+    delete: true
+    delay: 20
+    host: 10.0.0.5
+    options:
+      archive: true
+      compress: true
+      rsh: "'ssh -oVerifyHostKeyDNS=yes -oStrictHostKeyChecking=no -oPasswordAuthentication=no'"

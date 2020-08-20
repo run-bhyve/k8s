@@ -6,7 +6,8 @@ HOSTINTERFACE=eth0
 HOSTIP="$( hostname -I | awk '{printf $1}' )"
 WORKDIR=/export/tmp
 SERVER_DNS=master.cloud.com,node01.cloud.com,kubernetes.default.svc,kubernetes.default,kubernetes,kubernetes.default.svc.cloud,kubernetes.default.svc.cloud.uat,localhost,master,node01
-SERVER_IP=10.0.0.1,10.0.0.2,172.18.0.1,127.0.0.1,192.168.1.7,192.168.1.1,192.168.1.2,192.168.1.3,192.168.1.4,192.168.1.5,192.168.1.6,192.168.1.8,192.168.1.9,192.168.1.10,192.168.1.11
+#SERVER_IP=10.0.0.1,10.0.0.2,172.18.0.1,127.0.0.1,192.168.1.7,192.168.1.1,192.168.1.2,192.168.1.3,192.168.1.4,192.168.1.5,192.168.1.6,192.168.1.8,192.168.1.9,192.168.1.10,192.168.1.11,10.0.0.100
+SERVER_IP=10.0.0.1,10.0.0.2,127.0.0.1,10.0.0.100
 SERVERS=10.0.0.2:node01.cloud.com
 WORKERS=10.0.0.2:node01.cloud.com
 #NODES=10.0.0.2:node01.cloud.com
@@ -35,6 +36,7 @@ INGRESS_HOST=master.cloud.com
 INSTALL_INGRESS=true
 
 ETCDSERVERS=http://10.0.0.2:2379
+ETCDSERVERS=https://10.0.0.2:2379
 MASTER_1_IP=10.0.0.2
 ADVERTISE_IP=$MASTER_1_IP
 ETCD_1_IP=${MASTER_1_IP}
@@ -45,23 +47,28 @@ YOUR_DOMAIN=cloud.uat
 INSTALL_KUBELET_ON_MASTER=true
 INSTALL_DASHBOARD=true
 INSTALL_SKYDNS=true
-INSTALL_HEAPSTER=false
+INSTALL_HEAPSTER=true
 SKYDNS_DOMAIN_NAME=cloud.uat
-ETCD_VER="v3.2.18"
+#ETCD_VER="v3.2.18"
+ETCD_VER="v3.4.10"
 ETCD_VERSION="etcd-${ETCD_VER}-linux-amd64"
-FLANNEL_VER="v0.10.0"
+#FLANNEL_VER="v0.10.0"
+FLANNEL_VER="v0.12.0"
 FLANNEL_VERSION="flannel-${FLANNEL_VER}-linux-amd64"
-K8S_VER="v1.15.0"
-#K8S_VER=v1.18.0
+#K8S_VER="v1.15.11"
+K8S_VER="v1.18.6"
 
-K8S_BIN_FILES="hyperkube kubeadm kube-apiserver kubelet kube-proxy kubectl"
+#K8S_BIN_FILES="hyperkube kubeadm kube-apiserver kubelet kube-proxy kubectl"
+K8S_BIN_FILES="kubeadm kube-apiserver kubelet kube-proxy kubectl"
 
 # Cert
 CA_COUNTRY="RU"
-CA_STATE="Nort-West Russia"
-CA_LOCALITY="GN"
+CA_STATE="None"
+CA_LOCALITY="None"
 CA_ORGANIZATION="ConvectIX"
 CA_ORGU="IT"
 CA_EMAIL="noc@convectix.com"
-CA_COMMONNAME="k8s-dep"
+CA_COMMONNAME="k8s-dep.convectix.com"
 CA_DAYS="3650"
+
+CERT_KEY_BIT="4096"

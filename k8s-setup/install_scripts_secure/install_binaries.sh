@@ -13,19 +13,19 @@ $INSTALL_PATH/setup.sh
 pushd workspace/
 
 if [ ! -f kubernetes-server-linux-amd64.tar.gz ]; then
-	wget -O kubernetes-server-linux-amd64.tar.gz https://dl.k8s.io/${K8S_VER}/kubernetes-server-linux-amd64.tar.gz
+	wget -O kubernetes-server-linux-amd64.tar.gz ${K8S_FETCH_URL}
 	ret=$?
 	[ ${ret} -ne 0 ] && exit ${ret}
 fi
 
 if [ ! -f etcd-linux-amd64.tar.gz ]; then
-	wget -O etcd-linux-amd64.tar.gz https://github.com/coreos/etcd/releases/download/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz
+	wget -O etcd-linux-amd64.tar.gz ${ETCD_FETCH_URL}
 	ret=$?
 	[ ${ret} -ne 0 ] && exit ${ret}
 fi
 
 if [ ! -f flannel-linux-amd64.tar.gz ]; then
-	wget -O flannel-linux-amd64.tar.gz https://github.com/coreos/flannel/releases/download/${FLANNEL_VER}/flannel-${FLANNEL_VER}-linux-amd64.tar.gz
+	wget -O flannel-linux-amd64.tar.gz ${FLANNEL_FETCH_URL}
 	ret=$?
 	[ ${ret} -ne 0 ] && exit ${ret}
 fi

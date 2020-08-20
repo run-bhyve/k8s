@@ -80,7 +80,8 @@ if [ $(hostname -f) == 'master.cloud.com' ]; then
 		echo "kubectl create -f $INSTALL_PATH/admin.yaml"
 	fi
 else
-	sleep 10
+	# todo - polling for master init success
+	sleep 60
 fi
 
 if [ $(hostname -f) == 'master.cloud.com' ]; then
@@ -123,4 +124,6 @@ $INSTALL_PATH/install_haproxy.sh
 
 systemctl restart kubelet.service
 
-kubectl label node master node-role.kubernetes.io/master=
+# lets sync to master/api:
+sleep 10
+kubectl label node $( hostname -s ) node-role.kubernetes.io/master=

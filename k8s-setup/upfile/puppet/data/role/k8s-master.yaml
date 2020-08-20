@@ -1,0 +1,19 @@
+classes:
+  - timezone
+  - mailalias
+  - dynmotd
+  - lsyncd
+  - keepalived
+
+profile::package::entries:
+  tmux:
+    ensure: "present"
+  git:
+    ensure: "present"
+
+lsyncd::settings:
+  logfile: '"/var/log/lsyncd.log"'
+  statusFile: '"/var/log/lsyncd.status"'
+  statusInterval: 1
+  maxProcesses: 1
+  insist: 1
